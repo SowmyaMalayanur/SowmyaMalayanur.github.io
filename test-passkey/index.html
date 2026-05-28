@@ -1,1 +1,128 @@
 
+<!doctype html>
+<!--
+  Test 1 PoC page for WebAuthn-in-WebView (WEB_AUTHENTICATION_SUPPORT_FOR_APP).
+  Host this at:  https://<YOUR_DOMAIN>/test-passkey/index.html
+  And serve:     https://<YOUR_DOMAIN>/.well-known/assetlinks.json
+  (See README.md in this folder.)
+
+  Open in the debug build's WebAuthnPocActivity:
+    adb shell am start \
+      -a com.azure.authenticator.debug.WEBAUTHN_POC \
+      -e url "https://<YOUR_DOMAIN>/test-passkey/index.html"
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>WebAuthn-in-WebView PoC</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body { font-family: -apple-system, system-ui, sans-serif; padding: 16px; line-height: 1.4; }
+      pre  { background: #f4f4f4; padding: 12px; white-space: pre-wrap; word-break: break-all; }
+      button { padding: 12px 16px; font-size: 16px; }
+      .ok    { color: #0a0; }
+      .err   { color: #c00; }
+    </style>
+  </head>
+  <body>
+    <h1>WebAuthn-in-WebView PoC</h1>
+    <p>
+      RP-ID is taken from <code>window.location.hostname</code> (DAL must be served from
+      <code>https://<em>that-host</em>/.well-known/assetlinks.json</code>).
+    </p>
+    <p>
+      <strong>RP-ID detected:</strong> <code id="rpid"></code><br />
+      <strong>Origin:</strong> <code id="origin"></code><br />
+      <strong>PublicKeyCredential available:</strong> <code id="pkc"></code>
+    </p>
+
+    <button id="register">Trigger navigator.credentials.create()</button>
+
+    <h2>Status</h2>
+    <pre id="status">(idle)</pre>
+
+    <h2>Last result</h2>
+    <pre id="result">—</pre>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      $("rpid").textContent = window.location.hostname;
+      $("origin").textContent = window.location.origin;
+      $("pkc").textContent = (typeof window.PublicKeyCredential !== "undefined");
+
+      function log(msg, isErr) {
+        const node = $("status");
+        const stamp = new Date().toISOString();
+        node.textContent += "\n[" + stamp + "] " + msg;
+        // Also push to console so the Android WebChromeClient picks it up in Logcat.
+        if (isErr) {
+          console.error("[PoC] " + msg);
+        } else {
+          console.log("[PoC] " + msg);
+        }
+      }
+
+      function b64urlBytes(len) {
+        const arr = new Uint8Array(len);
+        crypto.getRandomValues(arr);
+        return arr;
+      }
+
+      $("register").addEventListener("click", async () => {
+        $("status").textContent = "(starting)";
+        $("result").textContent = "—";
+
+        if (typeof window.PublicKeyCredential === "undefined") {
+          log("PublicKeyCredential API not present — WebView is NOT opted into WebAuthn.", true);
+          return;
+        }
+
+        const publicKey = {
+          challenge: b64urlBytes(32),
+          rp: {
+            id: window.location.hostname,
+            name: "WebAuthn PoC"
+          },
+          user: {
+            id: b64urlBytes(16),
+            name: "poc-user@" + window.location.hostname,
+            displayName: "PoC User"
+          },
+          pubKeyCredParams: [
+            { type: "public-key", alg: -7   }, // ES256
+            { type: "public-key", alg: -257 }  // RS256
+          ],
+          timeout: 60000,
+          attestation: "none",
+          authenticatorSelection: {
+            // Force a platform / passkey authenticator (this is what Authenticator is registered as).
+            authenticatorAttachment: "platform",
+            residentKey: "required",
+            userVerification: "required"
+          }
+        };
+
+        log("Calling navigator.credentials.create(...) — expect a Credential Manager picker.");
+
+        try {
+          const cred = await navigator.credentials.create({ publicKey });
+          log("SUCCESS — credential created.", false);
+          $("result").className = "ok";
+          $("result").textContent = JSON.stringify({
+            id: cred.id,
+            type: cred.type,
+            rawIdLen: cred.rawId ? cred.rawId.byteLength : null,
+            response: {
+              clientDataJSONLen: cred.response.clientDataJSON.byteLength,
+              attestationObjectLen: cred.response.attestationObject.byteLength
+            }
+          }, null, 2);
+        } catch (e) {
+          log("FAILED — " + (e && e.name) + ": " + (e && e.message), true);
+          $("result").className = "err";
+          $("result").textContent = (e && e.stack) ? e.stack : String(e);
+        }
+      });
+    </script>
+  </body>
+</html>
