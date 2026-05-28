@@ -1,1 +1,16 @@
 
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.azure.authenticator",
+      "sha256_cert_fingerprints": [
+        "E2:9B:42:31:64:51:E2:EC:92:2E:62:96:CD:1C:07:66:78:4C:A2:C0:83:72:0D:8F:E0:22:52:91:F5:3C:EF:B0"
+      ]
+    }
+  }
+]
