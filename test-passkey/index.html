@@ -140,7 +140,7 @@
           localStorage.setItem(STORAGE_KEY, cred.id);
           refreshSavedCredIdUi();
           $("result").className = "ok";
-          $("result").textContent = JSON.stringify({
+          const createResult = {
             id: cred.id,
             type: cred.type,
             rawIdLen: cred.rawId ? cred.rawId.byteLength : null,
@@ -149,7 +149,16 @@
               attestationObjectLen: cred.response.attestationObject.byteLength,
               attestationObjectB64u: bufToB64url(cred.response.attestationObject)
             }
-          }, null, 2);
+          };
+          $("result").textContent = JSON.stringify(createResult, null, 2);
+          // Emit the b64u in chunks so adb logcat (which truncates long lines) gets the full string.
+          const ao = createResult.response.attestationObjectB64u;
+          console.log("[PoC] ATTOBJ_BEGIN len=" + ao.length);
+          const CHUNK = 200;
+          for (let i = 0; i < ao.length; i += CHUNK) {
+            console.log("[PoC] ATTOBJ[" + i + "]=" + ao.substr(i, CHUNK));
+          }
+          console.log("[PoC] ATTOBJ_END");
         } catch (e) {
           log("FAILED — " + (e && e.name) + ": " + (e && e.message), true);
           $("result").className = "err";
