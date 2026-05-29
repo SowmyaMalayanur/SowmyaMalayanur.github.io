@@ -1,4 +1,3 @@
-
 <!doctype html>
 <!--
   Test 1 PoC page for WebAuthn-in-WebView (WEB_AUTHENTICATION_SUPPORT_FOR_APP).
@@ -37,6 +36,14 @@
     </p>
 
     <button id="register">Trigger navigator.credentials.create()</button>
+    <button id="loginWithId">Trigger navigator.credentials.get() (allowCredentials)</button>
+    <button id="loginDiscoverable">Trigger navigator.credentials.get() (discoverable)</button>
+    <button id="clearSaved">Clear saved credential id</button>
+
+    <p>
+      <strong>Saved credential id (last register):</strong>
+      <code id="savedCredId">(none)</code>
+    </p>
 
     <h2>Status</h2>
     <pre id="status">(idle)</pre>
@@ -67,6 +74,29 @@
         crypto.getRandomValues(arr);
         return arr;
       }
+
+      function bufToB64url(buf) {
+        const bytes = new Uint8Array(buf);
+        let s = "";
+        for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+        return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      }
+
+      function b64urlToBuf(s) {
+        s = s.replace(/-/g, "+").replace(/_/g, "/");
+        while (s.length % 4) s += "=";
+        const bin = atob(s);
+        const out = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+        return out.buffer;
+      }
+
+      const STORAGE_KEY = "poc.lastCredId";
+      function refreshSavedCredIdUi() {
+        const id = localStorage.getItem(STORAGE_KEY);
+        $("savedCredId").textContent = id || "(none)";
+      }
+      refreshSavedCredIdUi();
 
       $("register").addEventListener("click", async () => {
         $("status").textContent = "(starting)";
@@ -107,6 +137,8 @@
         try {
           const cred = await navigator.credentials.create({ publicKey });
           log("SUCCESS — credential created.", false);
+          localStorage.setItem(STORAGE_KEY, cred.id);
+          refreshSavedCredIdUi();
           $("result").className = "ok";
           $("result").textContent = JSON.stringify({
             id: cred.id,
@@ -122,6 +154,70 @@
           $("result").className = "err";
           $("result").textContent = (e && e.stack) ? e.stack : String(e);
         }
+      });
+
+      async function runGet(useAllowCredentials) {
+        $("status").textContent = "(starting)";
+        $("result").textContent = "—";
+
+        if (typeof window.PublicKeyCredential === "undefined") {
+          log("PublicKeyCredential API not present — WebView is NOT opted into WebAuthn.", true);
+          return;
+        }
+
+        const publicKey = {
+          challenge: b64urlBytes(32),
+          rpId: window.location.hostname,
+          timeout: 60000,
+          userVerification: "required"
+        };
+
+        if (useAllowCredentials) {
+          const saved = localStorage.getItem(STORAGE_KEY);
+          if (!saved) {
+            log("No saved credential id — register first, or use the discoverable button.", true);
+            return;
+          }
+          publicKey.allowCredentials = [{
+            type: "public-key",
+            id: b64urlToBuf(saved),
+            transports: ["internal", "hybrid"]
+          }];
+          log("Calling navigator.credentials.get(...) with allowCredentials=[" + saved + "]");
+        } else {
+          log("Calling navigator.credentials.get(...) discoverable (empty allowCredentials).");
+        }
+
+        try {
+          const assertion = await navigator.credentials.get({ publicKey });
+          log("SUCCESS — assertion received.", false);
+          $("result").className = "ok";
+          $("result").textContent = JSON.stringify({
+            id: assertion.id,
+            type: assertion.type,
+            rawIdLen: assertion.rawId ? assertion.rawId.byteLength : null,
+            response: {
+              clientDataJSON: new TextDecoder().decode(assertion.response.clientDataJSON),
+              authenticatorDataLen: assertion.response.authenticatorData.byteLength,
+              signatureLen: assertion.response.signature.byteLength,
+              userHandleLen: assertion.response.userHandle ? assertion.response.userHandle.byteLength : null,
+              signatureB64u: bufToB64url(assertion.response.signature),
+              authenticatorDataB64u: bufToB64url(assertion.response.authenticatorData)
+            }
+          }, null, 2);
+        } catch (e) {
+          log("FAILED — " + (e && e.name) + ": " + (e && e.message), true);
+          $("result").className = "err";
+          $("result").textContent = (e && e.stack) ? e.stack : String(e);
+        }
+      }
+
+      $("loginWithId").addEventListener("click", () => runGet(true));
+      $("loginDiscoverable").addEventListener("click", () => runGet(false));
+      $("clearSaved").addEventListener("click", () => {
+        localStorage.removeItem(STORAGE_KEY);
+        refreshSavedCredIdUi();
+        log("Cleared saved credential id.");
       });
     </script>
   </body>
